@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 import re
 import ctypes
 import json
+import tempfile
+import shutil
 
 SRC_DIR = Path(__file__).parent / "src"
 OUT_DIR = Path(__file__).parent / "out"
@@ -306,6 +308,58 @@ def write_all_markdown(
             out_dir
         )
 
+def create_temp_output_dir(out_dir: Path) -> Path:
+    """ 正式出力先と同じ階層に一時フォルダを作成する"""
+
+    parent_dir = out_dir.parent
+
+    parent_dir.mkdir(
+        parents=True, 
+        exist_ok=True, 
+    )
+
+    return Path(
+        tempfile.mkdtemp(
+            prefix=f"{out_dir.name}.tmp-", 
+            dir=parent_dir, 
+        )
+    )
+
+def replace_output_dir(
+        temp_out_dir: Path, out_dir: Path) -> Path | None:
+    """ 一時出力フォルダを正式出力フォルダに入れ替える"""
+
+    backup_dir = out_dir.with_name(
+        f"{out_dir.name}.backup"
+    )
+
+    if backup_dir.exists():
+        raise FileExistsError(
+            f"バックアップフォルダがすでに存在する: "
+            f"{backup_dir}"
+            f"（(ﾟдﾟ)､ﾍﾟｯ < クソが。）"
+        )
+
+    if out_dir.exists():
+        out_dir.rename(backup_dir)
+    else:
+        backup_dir = None
+
+    try:
+        temp_out_dir.rename(out_dir)
+
+    except Exception:
+        if (
+            backup_dir is not None
+            and backup_dir.exists()
+            and not out_dir.exists()):
+
+            backup_dir.rename(out_dir)
+
+        raise
+
+    return backup_dir
+
 def main():
     if is_frozen() and len(sys.argv) < 2:
         show_message(
@@ -325,10 +379,52 @@ def main():
 
     out_dir = get_output_dir(twbx_path)
 
-    write_all_markdown(
-        calc_fields, 
-        out_dir
-    )
+    temp_out_dir = create_temp_output_dir(out_dir)
+
+    try:
+        write_all_markdown(
+            calc_fields, 
+            temp_out_dir, 
+        )
+
+        print("交換前の正式出力先:", out_dir.resolve())
+        print("交換前の一時出力先:", temp_out_dir.resolve())
+
+        print(
+            "正式出力の残りカス:",
+            list(out_dir.rglob("ち～ん（笑）.md")),
+        )
+
+        print(
+            "一時出力の残りカス:",
+            list(temp_out_dir.rglob("ち～ん（笑）.md")),
+        )
+
+        backup_dir = replace_output_dir(
+            temp_out_dir,
+            out_dir,
+        )
+
+        backup_dir = replace_output_dir(temp_out_dir, out_dir)
+
+        print(
+            "交換後の残りカス:",
+            list(out_dir.rglob("ち～ん（笑）.md")),
+        )
+
+        if (
+            backup_dir is not None
+            and backup_dir.exists()):
+
+            shutil.rmtree(backup_dir)
+
+    finally:
+        if temp_out_dir.exists():
+            shutil.rmtree(temp_out_dir)
+
+
+    print("正式出力先:", out_dir)
+    print("一時出力先:", temp_out_dir)
 
     if is_frozen():
         show_message(
