@@ -5,12 +5,16 @@ import zipfile
 import xml.etree.ElementTree as ET
 import re
 import ctypes
+import json
 
 SRC_DIR = Path(__file__).parent / "src"
 OUT_DIR = Path(__file__).parent / "out"
 
 @dataclass
 class CalcField:
+    datasource_caption: str
+    datasource_internal_name: str
+
     caption: str
     internal_name: str
     formula: str
@@ -19,6 +23,8 @@ class CalcField:
     field_type: str | None
 
     depends_on: list[str] = field(default_factory=list)
+
+CalcFieldKey = tuple[str, str]
 
 def is_frozen() -> bool:
     """ PyInstallerで生成された実行ファイルか判定"""
@@ -103,44 +109,62 @@ def parse_twb_xml(xml_text: str) -> ET.Element:
 
     return ET.fromstring(xml_text)
 
-def collect_calc_fields(root: ET.Element) -> dict[str, CalcField]:
+def collect_calc_fields(
+        root: ET.Element) -> dict[CalcFieldKey, CalcField]:
     """ ワークブック内の計算フィールドを収集
     
     :param root: XMLのルート要素
     :type root: ET.Element
-    :return: 内部名とカスタムCalcFieldのディクショナリ
-    :rtype: dict[str, CalcField]
+    :return: データソース内部名とフィールド内部名をキーとするCalcFieldのdict
+    :rtype: dict[CalcFieldKey, CalcField]
     """
 
-    calc_fields: dict[str, CalcField] = {}
+    calc_fields: dict[CalcFieldKey, CalcField] = {}
 
-    for col in root.iter("column"):
-        calc = col.find("calculation")
+    for datasource in root.findall(
+            "./datasources/datasource"):
 
-        if calc is None:
-            continue
+        datasource_caption = \
+            datasource.get("caption") or ""
 
-        internal_name = col.get("name")
+        datasource_internal_name = \
+            datasource.get("name") or ""
 
-        if internal_name is None:
-            continue
+        for col in datasource.findall("column"):
+            calc = col.find("calculation")
 
-        if internal_name in calc_fields:
-            continue
+            if calc is None:
+                continue
 
-        calc_fields[internal_name] = \
-            CalcField(
-                caption=col.get("caption") or "", 
-                internal_name=internal_name, 
-                formula=calc.get("formula") or "", 
-                datatype=col.get("datatype"), 
-                role=col.get("role"), 
-                field_type=col.get("type"), 
+            internal_name = col.get("name")
+
+            if internal_name is None:
+                continue
+
+            key = (
+                datasource_internal_name, 
+                internal_name, 
             )
+
+            if key in calc_fields:
+                continue
+
+            calc_fields[key] = \
+                CalcField(
+                    datasource_caption=datasource_caption, 
+                    datasource_internal_name=datasource_internal_name, 
+                    caption=col.get("caption") or "", 
+                    internal_name=internal_name, 
+                    formula=calc.get("formula") or "", 
+                    datatype=col.get("datatype"), 
+                    role=col.get("role"), 
+                    field_type=col.get("type"), 
+                )
 
     return calc_fields
 
-def resolve_dependencies(calc_fields: dict[str, CalcField]) -> None:
+def resolve_dependencies(
+        calc_fields: dict[CalcFieldKey, CalcField]) -> None:
     """ []で囲まれた内部名をcaptionに変換する
     
     """
@@ -156,29 +180,30 @@ def resolve_dependencies(calc_fields: dict[str, CalcField]) -> None:
             dict.fromkeys(
                 ref
                 for ref in refs
-                if ref in calc_fields
+                if (calc_field.datasource_internal_name, ref) in calc_fields
             )
         )
 
 def resolve_formula(
         calc_field: CalcField, 
-        calc_fields: dict[str, CalcField]) -> str:
+        calc_fields: dict[CalcFieldKey, CalcField]) -> str:
     """ 計算フィールド参照を表示名に解決した計算式を返す"""
 
     formula = calc_field.formula
 
     for dep in calc_field.depends_on:
+        dep_key = (calc_field.datasource_internal_name, dep)
         formula = \
             formula.replace(
                 dep, 
-                f"[{calc_fields[dep].caption}]"
+                f"[{calc_fields[dep_key].caption}]"
             )
 
     return formula
 
 def export_markdown(
         calc_field: CalcField, 
-        calc_fields: dict[str, CalcField]) -> str:
+        calc_fields: dict[CalcFieldKey, CalcField]) -> str:
     """ CalcFieldオブジェクトから出力用マークダウンテキストを作成
     
     :param calc_field: 計算フィールドオブジェクト
@@ -189,24 +214,39 @@ def export_markdown(
     :rtype: str
     """
 
-    depends_on_text = ""
+    if calc_field.depends_on:
+        depends_on_lines = ["depends_on:"]
 
-    for dep in calc_field.depends_on:
-        dep_field = calc_fields[dep]
-        depends_on_text += \
-            f"  - caption: {dep_field.caption}\n" \
-            f"    internal_name: {dep_field.internal_name}\n"
+        for dep in calc_field.depends_on:
+            dep_key = (calc_field.datasource_internal_name, dep)
+            dep_field = calc_fields[dep_key]
+
+            depends_on_lines.extend([
+                (
+                    "  - caption: "
+                    f"{to_yaml_scalar(dep_field.caption)}"
+                ), 
+                (
+                    "    internal_name: "
+                    f"{to_yaml_scalar(dep_field.internal_name)}"
+                ), 
+            ])
+        
+        depends_on_text = "\n".join(depends_on_lines)
+    else:
+        depends_on_text = "depends_on: []"
 
     return \
 f"""---
-caption: {calc_field.caption}
-internal_name: {calc_field.internal_name}
-datatype: {calc_field.datatype}
-role: {calc_field.role}
-type: {calc_field.field_type}
-
-depends_on: 
+datasource_caption: {to_yaml_scalar(calc_field.datasource_caption)}
+datasource_internal_name: {to_yaml_scalar(calc_field.datasource_internal_name)}
+caption: {to_yaml_scalar(calc_field.caption)}
+internal_name: {to_yaml_scalar(calc_field.internal_name)}
+datatype: {to_yaml_scalar(calc_field.datatype)}
+role: {to_yaml_scalar(calc_field.role)}
+type: {to_yaml_scalar(calc_field.field_type)}
 {depends_on_text}
+---
 
 # {calc_field.caption}
 
@@ -221,17 +261,31 @@ depends_on:
 ```
 """
 
+def to_yaml_scalar(value: str | None) -> str:
+    """ 値をYAMLのスカラーとして安全に出力する"""
+
+    if value is None:
+        return "null"
+
+    return json.dumps(
+        value, 
+        ensure_ascii=False, 
+    )
+
 def write_markdown(
         calc_field: CalcField, 
-        calc_fields: dict[str, CalcField], 
+        calc_fields: dict[CalcFieldKey, CalcField], 
         out_dir: Path) -> Path:
-    out_dir.mkdir(
+    datasource_dir = \
+        out_dir / calc_field.datasource_internal_name
+
+    datasource_dir.mkdir(
         parents=True, 
         exist_ok=True, 
     )
 
     out_path = \
-        out_dir / f"{calc_field.internal_name}.md"
+        datasource_dir / f"{calc_field.internal_name}.md"
 
     out_path.write_text(
         export_markdown(calc_field, calc_fields), 
