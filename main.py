@@ -294,6 +294,18 @@ def write_markdown(
 
     return out_path
 
+def write_all_markdown(
+        calc_fields: dict[CalcFieldKey, CalcField], 
+        out_dir: Path) -> None:
+    """ すべての計算フィールドをMarkdownで出力する"""
+
+    for calc_field in calc_fields.values():
+        write_markdown(
+            calc_field, 
+            calc_fields, 
+            out_dir
+        )
+
 def main():
     if is_frozen() and len(sys.argv) < 2:
         show_message(
@@ -313,11 +325,10 @@ def main():
 
     out_dir = get_output_dir(twbx_path)
 
-    for calc_field in calc_fields.values():
-        write_markdown(
-            calc_field, 
-            calc_fields, 
-            out_dir)
+    write_all_markdown(
+        calc_fields, 
+        out_dir
+    )
 
     if is_frozen():
         show_message(
