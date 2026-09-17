@@ -5,6 +5,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 import re
 import ctypes
+import json
 
 SRC_DIR = Path(__file__).parent / "src"
 OUT_DIR = Path(__file__).parent / "out"
@@ -190,24 +191,36 @@ def export_markdown(
     :rtype: str
     """
 
-    depends_on_text = ""
+    if calc_field.depends_on:
+        depends_on_lines = ["depends_on:"]
 
-    for dep in calc_field.depends_on:
-        dep_field = calc_fields[dep]
-        depends_on_text += \
-            f"  - caption: {dep_field.caption}\n" \
-            f"    internal_name: {dep_field.internal_name}\n"
+        for dep in calc_field.depends_on:
+            dep_field = calc_fields[dep]
+
+            depends_on_lines.extend([
+                (
+                    "  - caption: "
+                    f"{to_yaml_scalar(dep_field.caption)}"
+                ), 
+                (
+                    "    internal_name: "
+                    f"{to_yaml_scalar(dep_field.caption)}"
+                ), 
+            ])
+        
+        depends_on_text = "\n".join(depends_on_lines)
+    else:
+        depends_on_text = "depends_on: []"
 
     return \
 f"""---
-caption: {calc_field.caption}
-internal_name: {calc_field.internal_name}
-datatype: {calc_field.datatype}
-role: {calc_field.role}
-type: {calc_field.field_type}
-
-depends_on: 
-{depends_on_text}---
+caption: {to_yaml_scalar(calc_field.caption)}
+internal_name: {to_yaml_scalar(calc_field.internal_name)}
+datatype: {to_yaml_scalar(calc_field.datatype)}
+role: {to_yaml_scalar(calc_field.role)}
+type: {to_yaml_scalar(calc_field.field_type)}
+{depends_on_text}
+---
 
 # {calc_field.caption}
 
@@ -221,6 +234,17 @@ depends_on:
 {resolve_formula(calc_field, calc_fields)}
 ```
 """
+
+def to_yaml_scalar(value: str | None) -> str:
+    """ 値をYAMLのスカラーとして安全に出力する"""
+
+    if value is None:
+        return "null"
+
+    return json.dumps(
+        value, 
+        ensure_ascii=False, 
+    )
 
 def write_markdown(
         calc_field: CalcField, 
