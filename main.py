@@ -204,7 +204,7 @@ def export_markdown(
                 ), 
                 (
                     "    internal_name: "
-                    f"{to_yaml_scalar(dep_field.caption)}"
+                    f"{to_yaml_scalar(dep_field.internal_name)}"
                 ), 
             ])
         
