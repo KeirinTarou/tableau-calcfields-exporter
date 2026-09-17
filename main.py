@@ -112,38 +112,10 @@ def collect_calc_fields(root: ET.Element) -> dict[str, CalcField]:
     :rtype: dict[str, CalcField]
     """
 
-    all_columns = list(root.iter("column"))
-
-    definition_columns = \
-        root.findall("./datasources/datasource/column")
-
-    all_calc_columns = [
-        col
-        for col in all_columns
-        if col.find("calculation") is not None
-    ]
-
-    definition_calc_columns = [
-        col
-        for col in definition_columns
-        if col.find("calculation") is not None
-    ]
-
-    print(f"全階層のcolumn数: {len(all_columns)}")
-    print(f"定義元のcolumn数: {len(definition_columns)}")
-
-    print(
-        f"全階層の計算フィールド数: "
-        f"{len(all_calc_columns)}"
-    )
-    print(
-        f"定義元の計算フィールド数: "
-        f"{len(definition_calc_columns)}"
-    )
-
     calc_fields: dict[str, CalcField] = {}
 
-    for col in root.iter("column"):
+    for col in root.findall(
+            "./datasources/datasource/column"):
         calc = col.find("calculation")
 
         if calc is None:
