@@ -276,13 +276,16 @@ def write_markdown(
         calc_field: CalcField, 
         calc_fields: dict[CalcFieldKey, CalcField], 
         out_dir: Path) -> Path:
-    out_dir.mkdir(
+    datasource_dir = \
+        out_dir / calc_field.datasource_internal_name
+
+    datasource_dir.mkdir(
         parents=True, 
         exist_ok=True, 
     )
 
     out_path = \
-        out_dir / f"{calc_field.internal_name}.md"
+        datasource_dir / f"{calc_field.internal_name}.md"
 
     out_path.write_text(
         export_markdown(calc_field, calc_fields), 
