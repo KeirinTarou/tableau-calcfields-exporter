@@ -24,6 +24,8 @@ class CalcField:
 
     depends_on: list[str] = field(default_factory=list)
 
+CalcFieldKey = tuple[str, str]
+
 def is_frozen() -> bool:
     """ PyInstallerで生成された実行ファイルか判定"""
 
@@ -107,16 +109,17 @@ def parse_twb_xml(xml_text: str) -> ET.Element:
 
     return ET.fromstring(xml_text)
 
-def collect_calc_fields(root: ET.Element) -> dict[str, CalcField]:
+def collect_calc_fields(
+        root: ET.Element) -> dict[CalcFieldKey, CalcField]:
     """ ワークブック内の計算フィールドを収集
     
     :param root: XMLのルート要素
     :type root: ET.Element
-    :return: 内部名とカスタムCalcFieldのディクショナリ
-    :rtype: dict[str, CalcField]
+    :return: データソース内部名とフィールド内部名をキーとするCalcFieldのdict
+    :rtype: dict[CalcFieldKey, CalcField]
     """
 
-    calc_fields: dict[str, CalcField] = {}
+    calc_fields: dict[CalcFieldKey, CalcField] = {}
 
     for datasource in root.findall(
             "./datasources/datasource"):
@@ -138,10 +141,15 @@ def collect_calc_fields(root: ET.Element) -> dict[str, CalcField]:
             if internal_name is None:
                 continue
 
-            if internal_name in calc_fields:
+            key = (
+                datasource_internal_name, 
+                internal_name, 
+            )
+
+            if key in calc_fields:
                 continue
 
-            calc_fields[internal_name] = \
+            calc_fields[key] = \
                 CalcField(
                     datasource_caption=datasource_caption, 
                     datasource_internal_name=datasource_internal_name, 
@@ -155,7 +163,8 @@ def collect_calc_fields(root: ET.Element) -> dict[str, CalcField]:
 
     return calc_fields
 
-def resolve_dependencies(calc_fields: dict[str, CalcField]) -> None:
+def resolve_dependencies(
+        calc_fields: dict[CalcFieldKey, CalcField]) -> None:
     """ []で囲まれた内部名をcaptionに変換する
     
     """
@@ -171,29 +180,30 @@ def resolve_dependencies(calc_fields: dict[str, CalcField]) -> None:
             dict.fromkeys(
                 ref
                 for ref in refs
-                if ref in calc_fields
+                if (calc_field.datasource_internal_name, ref) in calc_fields
             )
         )
 
 def resolve_formula(
         calc_field: CalcField, 
-        calc_fields: dict[str, CalcField]) -> str:
+        calc_fields: dict[CalcFieldKey, CalcField]) -> str:
     """ 計算フィールド参照を表示名に解決した計算式を返す"""
 
     formula = calc_field.formula
 
     for dep in calc_field.depends_on:
+        dep_key = (calc_field.datasource_internal_name, dep)
         formula = \
             formula.replace(
                 dep, 
-                f"[{calc_fields[dep].caption}]"
+                f"[{calc_fields[dep_key].caption}]"
             )
 
     return formula
 
 def export_markdown(
         calc_field: CalcField, 
-        calc_fields: dict[str, CalcField]) -> str:
+        calc_fields: dict[CalcFieldKey, CalcField]) -> str:
     """ CalcFieldオブジェクトから出力用マークダウンテキストを作成
     
     :param calc_field: 計算フィールドオブジェクト
@@ -208,7 +218,8 @@ def export_markdown(
         depends_on_lines = ["depends_on:"]
 
         for dep in calc_field.depends_on:
-            dep_field = calc_fields[dep]
+            dep_key = (calc_field.datasource_internal_name, dep)
+            dep_field = calc_fields[dep_key]
 
             depends_on_lines.extend([
                 (
@@ -263,7 +274,7 @@ def to_yaml_scalar(value: str | None) -> str:
 
 def write_markdown(
         calc_field: CalcField, 
-        calc_fields: dict[str, CalcField], 
+        calc_fields: dict[CalcFieldKey, CalcField], 
         out_dir: Path) -> Path:
     out_dir.mkdir(
         parents=True, 
