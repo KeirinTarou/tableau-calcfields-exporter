@@ -207,7 +207,7 @@ role: {calc_field.role}
 type: {calc_field.field_type}
 
 depends_on: 
-{depends_on_text}
+{depends_on_text}---
 
 # {calc_field.caption}
 
