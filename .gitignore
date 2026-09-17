@@ -1,0 +1,11 @@
+.venv
+.vscode
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.zip
+src/
+out/
+unzipped/
