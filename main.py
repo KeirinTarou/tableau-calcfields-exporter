@@ -12,6 +12,9 @@ OUT_DIR = Path(__file__).parent / "out"
 
 @dataclass
 class CalcField:
+    datasource_caption: str
+    datasource_internal_name: str
+
     caption: str
     internal_name: str
     formula: str
@@ -115,30 +118,40 @@ def collect_calc_fields(root: ET.Element) -> dict[str, CalcField]:
 
     calc_fields: dict[str, CalcField] = {}
 
-    for col in root.findall(
-            "./datasources/datasource/column"):
-        calc = col.find("calculation")
+    for datasource in root.findall(
+            "./datasources/datasource"):
 
-        if calc is None:
-            continue
+        datasource_caption = \
+            datasource.get("caption") or ""
 
-        internal_name = col.get("name")
+        datasource_internal_name = \
+            datasource.get("name") or ""
 
-        if internal_name is None:
-            continue
+        for col in datasource.findall("column"):
+            calc = col.find("calculation")
 
-        if internal_name in calc_fields:
-            continue
+            if calc is None:
+                continue
 
-        calc_fields[internal_name] = \
-            CalcField(
-                caption=col.get("caption") or "", 
-                internal_name=internal_name, 
-                formula=calc.get("formula") or "", 
-                datatype=col.get("datatype"), 
-                role=col.get("role"), 
-                field_type=col.get("type"), 
-            )
+            internal_name = col.get("name")
+
+            if internal_name is None:
+                continue
+
+            if internal_name in calc_fields:
+                continue
+
+            calc_fields[internal_name] = \
+                CalcField(
+                    datasource_caption=datasource_caption, 
+                    datasource_internal_name=datasource_internal_name, 
+                    caption=col.get("caption") or "", 
+                    internal_name=internal_name, 
+                    formula=calc.get("formula") or "", 
+                    datatype=col.get("datatype"), 
+                    role=col.get("role"), 
+                    field_type=col.get("type"), 
+                )
 
     return calc_fields
 
@@ -214,6 +227,8 @@ def export_markdown(
 
     return \
 f"""---
+datasource_caption: {to_yaml_scalar(calc_field.datasource_caption)}
+datasource_internal_name: {to_yaml_scalar(calc_field.datasource_internal_name)}
 caption: {to_yaml_scalar(calc_field.caption)}
 internal_name: {to_yaml_scalar(calc_field.internal_name)}
 datatype: {to_yaml_scalar(calc_field.datatype)}
