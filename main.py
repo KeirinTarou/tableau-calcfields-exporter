@@ -14,6 +14,8 @@ OUT_DIR = Path(__file__).parent / "out"
 
 @dataclass
 class CalcField:
+    datasource_index: int
+
     datasource_caption: str
     datasource_internal_name: str
 
@@ -123,8 +125,8 @@ def collect_calc_fields(
 
     calc_fields: dict[CalcFieldKey, CalcField] = {}
 
-    for datasource in root.findall(
-            "./datasources/datasource"):
+    for datasource_index, datasource in enumerate(
+        root.findall("./datasources/datasource"), start=1):
 
         datasource_caption = \
             datasource.get("caption") or ""
@@ -153,6 +155,7 @@ def collect_calc_fields(
 
             calc_fields[key] = \
                 CalcField(
+                    datasource_index=datasource_index, 
                     datasource_caption=datasource_caption, 
                     datasource_internal_name=datasource_internal_name, 
                     caption=col.get("caption") or "", 
@@ -278,8 +281,10 @@ def write_markdown(
         calc_field: CalcField, 
         calc_fields: dict[CalcFieldKey, CalcField], 
         out_dir: Path) -> Path:
-    datasource_dir = \
-        out_dir / calc_field.datasource_internal_name
+    datasource_dir = (
+            out_dir 
+            / get_datasource_dir_name(calc_field)    
+        )
 
     datasource_dir.mkdir(
         parents=True, 
@@ -295,6 +300,29 @@ def write_markdown(
     )
 
     return out_path
+
+def get_datasource_dir_name(calc_field: CalcField) -> str:
+    """ 出力用データソースフォルダ名を解決する"""
+    caption = calc_field.datasource_caption.strip()
+
+    if not caption:
+        caption = calc_field.datasource_internal_name
+
+    return (
+        f"{calc_field.datasource_index:02d}_"
+        f"{sanitize_filename(caption)}"
+    )
+
+def sanitize_filename(name: str) -> str:
+    """ Windowsで使えない文字を置換する"""
+    sanitized = re.sub(
+        r'[\\/:*?"<>|]', 
+        "_", 
+        name, 
+    )
+    sanitized = sanitized.rstrip(". ")
+
+    return sanitized or "_"
 
 def write_all_markdown(
         calc_fields: dict[CalcFieldKey, CalcField], 
@@ -341,7 +369,17 @@ def replace_output_dir(
         )
 
     if out_dir.exists():
-        out_dir.rename(backup_dir)
+        try:
+            out_dir.rename(backup_dir)
+        # Windowsが処理対象フォルダ・ファイルをつかんでいるときのガード
+        except PermissionError as e:
+            raise RuntimeError(
+                "出力先フォルダまたは削除予定ファイルが使用中です。\n"
+                "エクスプローラ、VSCode等で\n"
+                "当該フォルダ・ファイルを閉じてから\n"
+                "再実行してください。\n"
+                "（(　ﾟдﾟ)､ﾍﾟｯ < クソが。）"
+            ) from e
     else:
         backup_dir = None
 
@@ -361,76 +399,64 @@ def replace_output_dir(
     return backup_dir
 
 def main():
-    if is_frozen() and len(sys.argv) < 2:
-        show_message(
-            "使い方: \n"
-            "    .twbxファイルをこの実行ファイルに"
-            "ドラッグ＆ドロップしてください。", 
-            "安易に`.exe`をダブルクリックしてはいけない。（(　ﾟдﾟ)､ﾍﾟｯ < クソが。）"
-        )
-        return
-
-    twbx_path = get_twbx_path()
-    xml_text = load_twb_xml(twbx_path)
-    root = parse_twb_xml(xml_text)
-    calc_fields = collect_calc_fields(root)
-
-    resolve_dependencies(calc_fields)
-
-    out_dir = get_output_dir(twbx_path)
-
-    temp_out_dir = create_temp_output_dir(out_dir)
-
     try:
-        write_all_markdown(
-            calc_fields, 
-            temp_out_dir, 
-        )
+        if is_frozen() and len(sys.argv) < 2:
+            show_message(
+                "使い方: \n"
+                "    .twbxファイルをこの実行ファイルに"
+                "ドラッグ＆ドロップしてください。", 
+                "安易に`.exe`をダブルクリックしてはいけない。（(　ﾟдﾟ)､ﾍﾟｯ < クソが。）"
+            )
+            return
 
-        print("交換前の正式出力先:", out_dir.resolve())
-        print("交換前の一時出力先:", temp_out_dir.resolve())
+        twbx_path = get_twbx_path()
+        xml_text = load_twb_xml(twbx_path)
+        root = parse_twb_xml(xml_text)
+        calc_fields = collect_calc_fields(root)
 
-        print(
-            "正式出力の残りカス:",
-            list(out_dir.rglob("ち～ん（笑）.md")),
-        )
+        resolve_dependencies(calc_fields)
 
-        print(
-            "一時出力の残りカス:",
-            list(temp_out_dir.rglob("ち～ん（笑）.md")),
-        )
+        out_dir = get_output_dir(twbx_path)
 
-        backup_dir = replace_output_dir(
-            temp_out_dir,
-            out_dir,
-        )
+        temp_out_dir = create_temp_output_dir(out_dir)
 
-        backup_dir = replace_output_dir(temp_out_dir, out_dir)
+        try:
+            # 一時フォルダにMarkdownを書き出し
+            write_all_markdown(
+                calc_fields, 
+                temp_out_dir, 
+            )
+            # 一時フォルダの内容を正式フォルダに丸ごと上書き
+            #   - 残りカスはここでなくなる
+            backup_dir = replace_output_dir(
+                temp_out_dir,
+                out_dir,
+            )
+            # バックアップ用フォルダがあったら根こそぎポア
+            if (
+                backup_dir is not None
+                and backup_dir.exists()):
 
-        print(
-            "交換後の残りカス:",
-            list(out_dir.rglob("ち～ん（笑）.md")),
-        )
+                shutil.rmtree(backup_dir)
 
-        if (
-            backup_dir is not None
-            and backup_dir.exists()):
+        finally:
+            # 一時フォルダは何が何でもポア
+            if temp_out_dir.exists():
+                shutil.rmtree(temp_out_dir)
 
-            shutil.rmtree(backup_dir)
+        if is_frozen():
+            show_message(
+                f"出力が完了しました。: \n{out_dir}", 
+                "( ´_ゝ`) < 終了♪"
+            )
 
-    finally:
-        if temp_out_dir.exists():
-            shutil.rmtree(temp_out_dir)
-
-
-    print("正式出力先:", out_dir)
-    print("一時出力先:", temp_out_dir)
-
-    if is_frozen():
-        show_message(
-            f"出力が完了しました。: \n{out_dir}", 
-            "( ´_ゝ`) < 終了♪"
-        )
+    except Exception as e:
+        if is_frozen():
+            show_message(
+                str(e), 
+                "( ´,_ゝ`) < ち～ん（笑）")
+            return
+        raise
 
 if __name__ == "__main__":
     main()
